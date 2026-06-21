@@ -135,7 +135,7 @@ CREATE TRIGGER tr_documents_updated BEFORE UPDATE ON documents
 
 -- Dados iniciais
 INSERT INTO users (nome, email, senha_hash, perfil) VALUES
-    ('Administrador', 'admin@gedsistema.com', '$2b$10$placeholder_hash', 'admin');
+    ('Administrador', 'admin@gedsistema.com', '$2b$10$i08iCQ2wzA8q4mDXdYzvwOs0ZbAsnBxX9cvaoSfJthVdLfZ5SvZcy', 'admin');
 
 INSERT INTO categories (nome, descricao) VALUES
     ('Contratos', 'Contratos e aditivos'),

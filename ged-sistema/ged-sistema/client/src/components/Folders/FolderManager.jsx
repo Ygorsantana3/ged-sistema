@@ -21,10 +21,11 @@ export default function FolderManager() {
     }
   }, [selectedFolder]);
 
-  const createFolder = async () => {
-    if (!newFolderName.trim()) return;
+  const createFolder = async (name) => {
+    const folderName = name || newFolderName;
+    if (!folderName.trim()) return;
     try {
-      await api.post('/folders', { nome: newFolderName, pasta_pai_id: selectedFolder });
+      await api.post('/folders', { nome: folderName, pasta_pai_id: selectedFolder });
       setNewFolderName('');
       const { data } = await api.get('/folders');
       setFolders(data);
@@ -42,7 +43,7 @@ export default function FolderManager() {
                 <h3>Pastas</h3>
                 <button className="btn btn-primary btn-sm" onClick={() => {
                   const name = prompt('Nome da nova pasta:');
-                  if (name) { setNewFolderName(name); setTimeout(createFolder, 0); }
+                  if (name) createFolder(name);
                 }}>+ Nova</button>
               </div>
             </div>

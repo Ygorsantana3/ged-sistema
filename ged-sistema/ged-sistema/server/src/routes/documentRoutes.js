@@ -15,6 +15,7 @@ router.get('/:id/versions', dc.getVersions);
 router.post('/upload', rbacMiddleware('admin', 'operador'), upload.single('file'), dc.upload);
 router.post('/:id/versions', rbacMiddleware('admin', 'operador'), upload.single('file'), dc.createVersion);
 router.put('/:id/metadata', rbacMiddleware('admin', 'operador'), dc.updateMetadata);
-router.delete('/:id', rbacMiddleware('admin', 'operador'), dc.delete);
+router.put('/:id/inactivate', rbacMiddleware('admin', 'operador'), dc.inactivate);
+router.put('/:id/reactivate', rbacMiddleware('admin', 'operador'), dc.reactivate);
 
 module.exports = router;

@@ -1,6 +1,6 @@
 const Tesseract = require('tesseract.js');
 const { pool } = require('../config/database');
-const { s3Client, BUCKET_NAME, GetObjectCommand } = require('../config/aws');
+const { getFileBuffer } = require('../config/storage');
 
 async function processDocument(documentId) {
   try {
@@ -10,36 +10,26 @@ async function processDocument(documentId) {
     if (doc.rows.length === 0) return;
 
     const document = doc.rows[0];
+    const buffer = getFileBuffer(document.s3_key);
+    if (!buffer) throw new Error('Arquivo não encontrado no armazenamento local');
 
-    // Baixar arquivo do S3
-    const s3Response = await s3Client.send(new GetObjectCommand({ Bucket: BUCKET_NAME, Key: document.s3_key }));
-    const chunks = [];
-    for await (const chunk of s3Response.Body) { chunks.push(chunk); }
-    const buffer = Buffer.concat(chunks);
-
-    // Processar OCR com Tesseract.js (suporte português)
     const { data } = await Tesseract.recognize(buffer, 'por', {
       logger: (m) => { if (m.status === 'recognizing text') console.log(`OCR ${documentId}: ${Math.round(m.progress * 100)}%`); }
     });
 
-    const confianca = data.confidence;
-    const texto = data.text;
-
     await pool.query(
       "UPDATE documents SET ocr_texto = $1, ocr_confianca = $2, ocr_status = 'processado' WHERE id = $3",
-      [texto, confianca, documentId]
+      [data.text, data.confidence, documentId]
     );
 
-    console.log(`OCR concluído para ${documentId} - Confiança: ${confianca}%`);
+    console.log(`OCR concluído para ${documentId} - Confiança: ${data.confidence}%`);
 
-    // Notificar se confiança baixa
-    if (confianca < 60) {
+    if (data.confidence < 60) {
       await pool.query(
         `INSERT INTO notifications (usuario_id, documento_id, tipo, titulo, mensagem)
-         VALUES ($1, $2, 'ocr_baixa_confianca', 'OCR com baixa confiança',
-         $3)`,
+         VALUES ($1, $2, 'ocr_baixa_confianca', 'OCR com baixa confiança', $3)`,
         [document.criado_por, documentId,
-         `O documento "${document.titulo}" foi processado com ${confianca}% de confiança. Revisão manual recomendada.`]
+         `O documento "${document.titulo}" foi processado com ${data.confidence}% de confiança. Revisão manual recomendada.`]
       );
     }
   } catch (err) {

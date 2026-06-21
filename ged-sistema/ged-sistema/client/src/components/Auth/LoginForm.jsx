@@ -28,10 +28,10 @@ export default function LoginForm() {
     <div className="login-page">
       <div className="login-left">
         <h1>Gestão<br />Eletrônica de<br /><span>Documentos</span></h1>
-        <p>Digitalização estruturada, indexação automatizada via OCR e armazenamento seguro em nuvem para sua organização.</p>
+        <p>Digitalização estruturada, indexação automatizada via OCR e armazenamento seguro para sua organização.</p>
         <div className="tech-badges">
           <div><strong>OCR</strong><span>Tesseract.js v5</span></div>
-          <div><strong>S3</strong><span>AWS Cloud</span></div>
+          <div><strong>PG</strong><span>PostgreSQL v16</span></div>
           <div><strong>JWT</strong><span>Auth segura</span></div>
         </div>
       </div>

@@ -1,9 +1,7 @@
 const { pool } = require('../config/database');
-const { s3Client, BUCKET_NAME, PutObjectCommand, GetObjectCommand, getSignedUrl } = require('../config/aws');
-const { v4: uuidv4 } = require('uuid');
+const { saveFile, saveVersionFile, getFileUrl } = require('../config/storage');
 const path = require('path');
 
-// RF02 - Upload de documentos
 exports.upload = async (req, res) => {
   try {
     const file = req.file;
@@ -17,15 +15,7 @@ exports.upload = async (req, res) => {
       return res.status(400).json({ error: 'Arquivo excede o limite de 50 MB' });
     }
 
-    const s3Key = `documents/${uuidv4()}${path.extname(file.originalname)}`;
-    await s3Client.send(new PutObjectCommand({
-      Bucket: BUCKET_NAME,
-      Key: s3Key,
-      Body: file.buffer,
-      ContentType: file.mimetype,
-      ServerSideEncryption: 'AES256',
-    }));
-
+    const { key, url } = await saveFile(file.buffer, file.originalname, file.mimetype);
     const { titulo, categoria_id, pasta_id, autor, palavras_chave, data_documento, data_validade, descricao } = req.body;
 
     const result = await pool.query(
@@ -34,7 +24,7 @@ exports.upload = async (req, res) => {
       [titulo, descricao, categoria_id || null, pasta_id || null, autor,
        palavras_chave ? palavras_chave.split(',').map(k => k.trim()) : null,
        path.extname(file.originalname).replace('.', '').toUpperCase(),
-       file.size, s3Key, `https://${BUCKET_NAME}.s3.amazonaws.com/${s3Key}`,
+       file.size, key, url,
        data_documento || null, data_validade || null, req.user.id]
     );
 
@@ -45,7 +35,6 @@ exports.upload = async (req, res) => {
   }
 };
 
-// RF05 - Busca textual completa
 exports.search = async (req, res) => {
   try {
     const { q, categoria_id, formato, page = 1, limit = 20 } = req.query;
@@ -80,7 +69,6 @@ exports.search = async (req, res) => {
   }
 };
 
-// RF07 - Visualização e download
 exports.download = async (req, res) => {
   try {
     const { id } = req.params;
@@ -88,15 +76,13 @@ exports.download = async (req, res) => {
     if (result.rows.length === 0) return res.status(404).json({ error: 'Documento não encontrado' });
 
     const doc = result.rows[0];
-    const url = await getSignedUrl(s3Client, new GetObjectCommand({ Bucket: BUCKET_NAME, Key: doc.s3_key }), { expiresIn: 3600 });
-
+    const url = await getFileUrl(doc.s3_key);
     res.json({ url, documento: doc });
   } catch (err) {
     res.status(500).json({ error: 'Erro ao gerar link de download' });
   }
 };
 
-// RF04 - Atualizar metadados
 exports.updateMetadata = async (req, res) => {
   try {
     const { id } = req.params;
@@ -105,9 +91,9 @@ exports.updateMetadata = async (req, res) => {
     const result = await pool.query(
       `UPDATE documents SET titulo=$1, descricao=$2, categoria_id=$3, pasta_id=$4, autor=$5,
        palavras_chave=$6, data_documento=$7, data_validade=$8 WHERE id=$9 AND excluido=FALSE RETURNING *`,
-      [titulo, descricao, categoria_id, pasta_id, autor,
+      [titulo, descricao, categoria_id || null, pasta_id || null, autor,
        palavras_chave ? palavras_chave.split(',').map(k => k.trim()) : null,
-       data_documento, data_validade, id]
+       data_documento || null, data_validade || null, id]
     );
 
     if (result.rows.length === 0) return res.status(404).json({ error: 'Documento não encontrado' });
@@ -117,22 +103,34 @@ exports.updateMetadata = async (req, res) => {
   }
 };
 
-// RN05 - Exclusão lógica (lixeira 30 dias)
-exports.delete = async (req, res) => {
+exports.inactivate = async (req, res) => {
   try {
     const { id } = req.params;
     const result = await pool.query(
-      'UPDATE documents SET excluido = TRUE, excluido_em = NOW() WHERE id = $1 RETURNING id, titulo',
+      'UPDATE documents SET excluido = TRUE, excluido_em = NOW() WHERE id = $1 AND excluido = FALSE RETURNING id, titulo',
       [id]
     );
-    if (result.rows.length === 0) return res.status(404).json({ error: 'Documento não encontrado' });
-    res.json({ message: 'Documento movido para a lixeira', documento: result.rows[0] });
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Documento não encontrado ou já inativo' });
+    res.json({ message: 'Documento inativado', documento: result.rows[0] });
   } catch (err) {
-    res.status(500).json({ error: 'Erro ao excluir documento' });
+    res.status(500).json({ error: 'Erro ao inativar documento' });
   }
 };
 
-// RF06 - Listar versões
+exports.reactivate = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await pool.query(
+      'UPDATE documents SET excluido = FALSE, excluido_em = NULL WHERE id = $1 AND excluido = TRUE RETURNING id, titulo',
+      [id]
+    );
+    if (result.rows.length === 0) return res.status(404).json({ error: 'Documento não encontrado ou já ativo' });
+    res.json({ message: 'Documento reativado', documento: result.rows[0] });
+  } catch (err) {
+    res.status(500).json({ error: 'Erro ao reativar documento' });
+  }
+};
+
 exports.getVersions = async (req, res) => {
   try {
     const { id } = req.params;
@@ -148,7 +146,6 @@ exports.getVersions = async (req, res) => {
   }
 };
 
-// RF06 - Criar nova versão
 exports.createVersion = async (req, res) => {
   try {
     const { id } = req.params;
@@ -159,28 +156,23 @@ exports.createVersion = async (req, res) => {
     if (doc.rows.length === 0) return res.status(404).json({ error: 'Documento não encontrado' });
 
     const novaVersao = doc.rows[0].versao_atual + 1;
-    const s3Key = `documents/${id}/v${novaVersao}${path.extname(file.originalname)}`;
-
-    await s3Client.send(new PutObjectCommand({
-      Bucket: BUCKET_NAME, Key: s3Key, Body: file.buffer,
-      ContentType: file.mimetype, ServerSideEncryption: 'AES256',
-    }));
+    const key = await saveVersionFile(file.buffer, id, novaVersao, file.originalname, file.mimetype);
 
     await pool.query(
       'INSERT INTO versions (document_id, numero_versao, s3_key, tamanho, criado_por) VALUES ($1,$2,$3,$4,$5)',
-      [id, novaVersao, s3Key, file.size, req.user.id]
+      [id, novaVersao, key, file.size, req.user.id]
     );
 
     await pool.query('UPDATE documents SET versao_atual=$1, s3_key=$2, tamanho=$3 WHERE id=$4',
-      [novaVersao, s3Key, file.size, id]);
+      [novaVersao, key, file.size, id]);
 
     res.status(201).json({ message: 'Nova versão criada', versao: novaVersao });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: 'Erro ao criar versão' });
   }
 };
 
-// Obter documento por ID
 exports.getById = async (req, res) => {
   try {
     const result = await pool.query(
@@ -195,12 +187,11 @@ exports.getById = async (req, res) => {
   }
 };
 
-// Listar todos
 exports.list = async (req, res) => {
   try {
-    const { pasta_id, categoria_id, page = 1, limit = 20 } = req.query;
+    const { pasta_id, categoria_id, status, page = 1, limit = 20 } = req.query;
     const offset = (page - 1) * limit;
-    let where = 'd.excluido = FALSE';
+    let where = status === 'inativo' ? 'd.excluido = TRUE' : 'd.excluido = FALSE';
     const params = [];
     if (pasta_id) { params.push(pasta_id); where += ` AND d.pasta_id = $${params.length}`; }
     if (categoria_id) { params.push(categoria_id); where += ` AND d.categoria_id = $${params.length}`; }

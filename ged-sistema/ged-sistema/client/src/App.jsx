@@ -7,6 +7,8 @@ import ProtectedRoute from './components/Auth/ProtectedRoute';
 import Dashboard from './components/Dashboard/Dashboard';
 import DocumentList from './components/Documents/DocumentList';
 import DocumentViewer from './components/Documents/DocumentViewer';
+import MetadataEditor from './components/Documents/MetadataEditor';
+import VersionList from './components/Documents/VersionList';
 import UploadForm from './components/Documents/UploadForm';
 import SearchPage from './components/Documents/SearchPage';
 import FolderManager from './components/Folders/FolderManager';
@@ -27,6 +29,10 @@ export default function App() {
             <Route path="upload" element={<ProtectedRoute roles={['admin','operador']}><UploadForm /></ProtectedRoute>} />
             <Route path="busca" element={<SearchPage />} />
             <Route path="pastas" element={<FolderManager />} />
+            <Route path="metadados" element={<ProtectedRoute roles={['admin','operador']}><MetadataEditor /></ProtectedRoute>} />
+            <Route path="metadados/:id" element={<ProtectedRoute roles={['admin','operador']}><MetadataEditor /></ProtectedRoute>} />
+            <Route path="versoes" element={<VersionList />} />
+            <Route path="versoes/:id" element={<VersionList />} />
             <Route path="usuarios" element={<ProtectedRoute roles={['admin']}><UserTable /></ProtectedRoute>} />
             <Route path="relatorios" element={<ProtectedRoute roles={['admin']}><AuditLog /></ProtectedRoute>} />
             <Route path="notificacoes" element={<NotificationList />} />
